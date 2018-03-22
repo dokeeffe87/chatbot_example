@@ -163,7 +163,41 @@ def train():
     Train the bot.
     :return:
     """
-    pass
+    test_buckets, data_buckets, train_buckets_scale = _get_buckets()
+    # In train mode, we need to construct the backwards path, so forward_only must be False.
+    model = ChatBotModel(False, config.BATCH_SIZE)
+    model.build_graph()
+
+    saver = tf.train.Saver()
+
+    with tf.Session() as sess:
+        print('Running session.')
+        sess.run(tf.global_variables_initializer())
+        _check_restore_parameters(sess, saver)
+
+        iteration = model.global_step.eval()
+        total_loss = 0
+        while True:
+            skip_step = _get_skip_step(iteration)
+            bucket_id = _get_random_bucket(train_buckets_scale)
+            encoder_inputs, decoder_inputs, decoder_masks = data.get_batch(data_buckets[bucket_id],
+                                                                          bucket_id,
+                                                                          batch_size=config.BATCH_SIZE)
+            start = time.time()
+            _, step_loss, _ = run_step(sess, model, encoder_inputs, decoder_inputs, decoder_masks, bucket_id, False)
+            total_loss += step_loss
+            iteration += 1
+
+            if iteration % skip_step == 0:
+                print('Iteration {0}: loss {1}, time {2}'.format(iteration, total_loss/skip_step, time.time() - start))
+                start = time.time()
+                total_loss = 0
+                saver.save(sess, os.path.join(config.CPT_PATH, 'chatbot'), global_step=model.global_step)
+                if iteration % (10 * skip_step) == 0:
+                    # Run evals on development set and print their loss
+                    _eval_test_set(sess, model, test_buckets)
+                    start = time.time()
+                sys.stdout.flush()
 
 
 def _get_user_input():
@@ -185,7 +219,7 @@ def find_right_bucket(length):
     return min([b for b in range(len(config.BUCKETS)) if config.BUCKETS[b][0] >= length])
 
 
-def _construct_reponse(output_logits, inv_dec_vocab):
+def _construct_response(output_logits, inv_dec_vocab):
     """
     Construct a reponse to the user's encoder input.
     @output_logits: the outputs from sequence to sequence to sequence wrapper.
@@ -195,7 +229,13 @@ def _construct_reponse(output_logits, inv_dec_vocab):
     :param inv_dec_vocab:
     :return:
     """
-    pass
+    print(output_logits[0])
+    outputs = [int(np.argmax(logit, axis=1)) for logit in output_logits]
+    # If there is an EOS symbol in outputs, cut them there.
+    if config.EOS_ID in outputs:
+        outputs = outputs[:outputs.index(config.EOS_ID)]
+    # Print out the sentence corresponding to outputs.
+    return " ".join([tf.compat.as_str(inv_dec_vocab[output]) for output in outputs])
 
 
 def chat():
@@ -203,11 +243,64 @@ def chat():
     in test mode, we don't create the backward path
     :return:
     """
-    pass
+    _, enc_vocab = data.load_vocab(os.path.join(config.PROCESSED_PATH, 'vocab_enc'))
+    inv_dec_vocab, _ = data.load_vocab((os.path.join(config.PROCESSED_PATH, 'vocab_dec')))
+
+    model = ChatBotModel(True, batch_size=1)
+    model.build_graph()
+
+    saver = tf.train.Saver()
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        _check_restore_parameters(sess, saver)
+        output_file = open(os.path.join(config.PROCESSED_PATH, config.OUTPUT_FILE), 'a+')
+        # Decode from standard input
+        max_length = config.BUCKETS[-1][0]
+        print('I am ChatBot. Proceed to chat. Enter of exit. Max length is {0}'.format(max_length))
+        while True:
+            line = _get_user_input()
+            if len(line) > 0 and line[-1] == '\n':
+                line = line[:-1]
+            if line == '':
+                break
+            output_file.write('HUMAN ++++ ' + line + '\n')
+            # Get token-ids for the input sentence.
+            token_ids = data.sentence2id(enc_vocab, str(line))
+            if len(token_ids) > max_length:
+                print('Max length I can handle is: {0}'.format(max_length))
+                line = _get_user_input()
+                continue
+            # Which bucket does this go in??
+            bucket_id = _find_right_bucket(len(token_ids))
+            # Get a 1-element batch to feed the sentence to the model.
+            encoder_inputs, decoder_inputs, decoder_masks = data.get_batch([(token_ids, [])], bucket_id, batch_size=1)
+            # Get output logits for the sentence.
+            _, _, output_logits = run_step(sess, model, encoder_inputs, decoder_inputs, decoder_masks, bucket_id, True)
+            response = _construct_response((output_logits, inv_dec_vocab))
+            print(response)
+            output_file.write('BOT ++++ ' + response + '\n')
+        output_file.write('===============================================\n')
+        output_file.close()
 
 
 def main():
-    pass
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--mode', choices={'train', 'chat'}, default='train',
+                        help="mode. if not specified, it's in the train mode.")
+    args = parser.parse_args()
+
+    if not os.path.isdir(config.PROCESSED_PATH):
+        data.prepare_raw_data()
+        data.process_data()
+    print('Data ready')
+    # Create checkpoints folder if there isn't one already.
+    data.make_dir(config.CPT_PATH)
+
+    if args.mode == 'train':
+        train()
+    elif args.mode == 'chat':
+        chat()
 
 
 if __name__ == '__main__':

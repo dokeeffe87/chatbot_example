@@ -20,7 +20,7 @@ def get_lines():
                 if len(parts) == 5:
                     if parts[4][-1] == '\n':
                         parts[4] = parts[4][:-1]
-                    id2line[parts[0]] == parts[4]
+                    id2line[parts[0]] = parts[4]
                 i += 1
         except UnicodeDecodeError:
             print(i, line)
@@ -40,7 +40,7 @@ def get_convos():
             if len(parts) == 4:
                 convo = []
                 for line in parts[3][1:-2].split(', '):
-                    convo.apend(line[1:-1])
+                    convo.append(line[1:-1])
                 convos.append(convo)
     return convos
 
@@ -83,7 +83,7 @@ def prepare_dataset(questions, answers):
     filenames = ['train.enc', 'train.dec', 'test.enc', 'train.enc']
     files = []
     for filename in filenames:
-        files.appened(open(os.path.join(config.PROCESSED_PATH, filename), 'w'))
+        files.append(open(os.path.join(config.PROCESSED_PATH, filename), 'w'))
 
     for i in range(len(questions)):
         if i in test_ids:
@@ -109,7 +109,7 @@ def basic_tokenizer(line, normalize_digits=True):
     line = re.sub('\[', '', line)
     line = re.sub('/]', '', line)
     words = []
-    _WORD_SPLIT  = re.compile("([.,!?\"'-<>:;)(])")
+    _WORD_SPLIT = re.compile("([.,!?\"'-<>:;)(])")
     _DIGIT_RE = re.compile(r"\d")
     for fragment in line.strip().lower().split():
         for token in re.split(_WORD_SPLIT, fragment):

@@ -1,4 +1,4 @@
-DATA_PATH = '/data/cornell_movie_dialogs_corpus/cornell movie-dialogs corpus'
+DATA_PATH = 'data/cornell_movie_dialogs_corpus/cornell movie-dialogs corpus'
 CONVO_FILE = 'movie_conversations.txt'
 LINE_FILE = 'movie_lines.txt'
 OUTPUT_FILE = 'output_convo.txt'
